@@ -18,8 +18,8 @@ A Chrome extension that automatically tracks the time you take to solve the dail
 ### Method 1: Clone from GitHub
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/wordle-timer-extension.git
-cd wordle-timer-extension
+git clone https://github.com/kirtipalve/wordle-timer.git
+cd wordle-timer
 ```
 
 ### Method 2: Download ZIP
