@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Wordle Timer",
+  "version": "1.0.0",
+  "description": "Tracks time taken to solve Wordle and adds it to share results",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://www.nytimes.com/games/wordle/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.nytimes.com/games/wordle/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ]
+}
