@@ -290,6 +290,7 @@ async function submitTimeToLeaderboard(data) {
 
   const region = sanitizeRegion(data.region);
   const leaderboardId = `${data.wordleNumber}_${region}`;
+  const completed = data.completed !== undefined ? !!data.completed : (data.guesses <= 6);
 
   // Check if already submitted today
   const existingEntry = await checkExistingSubmission(leaderboardId, user.uid, user.idToken);
@@ -306,6 +307,7 @@ async function submitTimeToLeaderboard(data) {
         time: { integerValue: String(data.time) },
         guesses: { integerValue: String(data.guesses) },
         wordleDate: { stringValue: data.wordleDate },
+        completed: { booleanValue: completed },
         region: { stringValue: region },
         submittedAt: { timestampValue: new Date().toISOString() }
       }
@@ -398,24 +400,27 @@ async function fetchLeaderboard(request) {
   const leaderboardId = `${wordleNumber}_${region}`;
 
   try {
-    // First try region-scoped leaderboard; if empty, fall back to legacy (no region suffix)
-    let entries = await fetchLeaderboardEntries(leaderboardId, user.idToken, user.uid);
-    let usedLegacy = false;
+    // Fetch both region and legacy leaderboards and merge
+    const [regionEntries, legacyEntries] = await Promise.all([
+      fetchLeaderboardEntries(leaderboardId, user.idToken, user.uid),
+      fetchLeaderboardEntries(String(wordleNumber), user.idToken, user.uid)
+    ]);
 
-    if (!entries || entries.length === 0) {
-      entries = await fetchLeaderboardEntries(String(wordleNumber), user.idToken, user.uid);
-      usedLegacy = entries && entries.length > 0;
-    }
+    const merged = mergeEntries(regionEntries, legacyEntries);
 
-    // Find current user's rank if they have an entry
+    // Assign ranks after merge/sort
+    const entries = merged.map((entry, idx) => ({
+      ...entry,
+      rank: idx + 1
+    }));
+
     const userEntry = entries.find(e => e.isCurrentUser);
 
     return {
       success: true,
       entries,
       userRank: userEntry ? userEntry.rank : null,
-      userTime: userEntry ? userEntry.time : null,
-      usedLegacy
+      userTime: userEntry ? userEntry.time : null
     };
   } catch (error) {
     console.error('Fetch leaderboard error:', error);
@@ -424,6 +429,8 @@ async function fetchLeaderboard(request) {
 }
 
 async function fetchLeaderboardEntries(leaderboardId, idToken, userId) {
+  if (!leaderboardId) return [];
+
   const query = {
     structuredQuery: {
       from: [{ collectionId: 'entries' }],
@@ -444,6 +451,17 @@ async function fetchLeaderboardEntries(leaderboardId, idToken, userId) {
     }
   );
 
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const errJson = await response.json();
+      detail = errJson?.error?.message || JSON.stringify(errJson);
+    } catch (_) {
+      detail = response.statusText;
+    }
+    throw new Error(`Firestore query failed for ${leaderboardId}: ${detail}`);
+  }
+
   const results = await response.json();
 
   if (!Array.isArray(results)) return [];
@@ -451,13 +469,26 @@ async function fetchLeaderboardEntries(leaderboardId, idToken, userId) {
   return results
     .filter(r => r.document)
     .map((r, index) => ({
-      rank: index + 1,
+      docId: r.document.name?.split('/').pop() || `${leaderboardId}-${index}`,
       displayName: r.document.fields.displayName?.stringValue || 'Anonymous',
       photoURL: r.document.fields.photoURL?.stringValue || '',
       time: parseInt(r.document.fields.time?.integerValue || 0),
       guesses: parseInt(r.document.fields.guesses?.integerValue || 0),
       isCurrentUser: r.document.fields.userId?.stringValue === userId
     }));
+}
+
+function mergeEntries(primary, secondary) {
+  const map = new Map();
+
+  [...(primary || []), ...(secondary || [])].forEach(entry => {
+    if (!entry) return;
+    if (!map.has(entry.docId)) {
+      map.set(entry.docId, entry);
+    }
+  });
+
+  return Array.from(map.values()).sort((a, b) => a.time - b.time);
 }
 
 async function updateUserStats(user, data) {

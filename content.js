@@ -11,6 +11,12 @@
   let overlayTimerInterval = null;
   let overlayAuthState = { isSignedIn: false, loading: false };
   const REGION_IDS = ['americas', 'europe', 'asia-pacific', 'other'];
+  let gamifyState = {
+    currentStreak: 0,
+    bestStreak: 0,
+    stars: 0,
+    lastCompletedDate: null
+  };
 
   // Get today's date in YYYY-MM-DD format for storage key
   function getTodayKey() {
@@ -21,6 +27,12 @@
   function getTodayDateString() {
     const today = new Date();
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  }
+
+  function getDateStringOffset(offsetDays) {
+    const d = new Date();
+    d.setDate(d.getDate() + offsetDays);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
   function detectRegionByOffset() {
@@ -71,6 +83,16 @@
       </div>
       <div class="wt-timer" id="wt-time">--:--</div>
       <div class="wt-status" id="wt-status">Waiting for the board...</div>
+      <div class="wt-gamify">
+        <div class="wt-gamify-metric">
+          <div class="wt-gamify-label">Streak</div>
+          <div class="wt-gamify-value" id="wt-streak">0 🔥</div>
+        </div>
+        <div class="wt-gamify-metric">
+          <div class="wt-gamify-label">Stars</div>
+          <div class="wt-gamify-value" id="wt-stars">0 ★</div>
+        </div>
+      </div>
       <div class="wt-auth">
         <div class="wt-auth-text" id="wt-auth-text">Checking sign-in…</div>
         <button id="wt-auth-btn" type="button">Check</button>
@@ -87,7 +109,9 @@
       status: container.querySelector('#wt-status'),
       authText: container.querySelector('#wt-auth-text'),
       authBtn: container.querySelector('#wt-auth-btn'),
-      openPopupBtn: container.querySelector('#wt-open-popup')
+      openPopupBtn: container.querySelector('#wt-open-popup'),
+      streak: container.querySelector('#wt-streak'),
+      stars: container.querySelector('#wt-stars')
     };
 
     const wordleNumber = getWordleNumber();
@@ -184,6 +208,33 @@
         border: 1px solid #2b2b2c;
       }
 
+      #wordle-timer-overlay .wt-gamify {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+
+      #wordle-timer-overlay .wt-gamify-metric {
+        background: #1a1a1b;
+        border: 1px solid #2b2b2c;
+        border-radius: 8px;
+        padding: 8px;
+      }
+
+      #wordle-timer-overlay .wt-gamify-label {
+        font-size: 11px;
+        color: #86888a;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 4px;
+      }
+
+      #wordle-timer-overlay .wt-gamify-value {
+        font-size: 16px;
+        font-weight: 700;
+        color: #e5e5e5;
+      }
+
       #wordle-timer-overlay .wt-status.wt-success {
         border-color: #538d4e;
         color: #b7e3b2;
@@ -264,6 +315,8 @@
   function updateOverlayTime() {
     if (!overlayElements) return;
     overlayElements.time.textContent = formatTime(elapsedTime);
+    overlayElements.streak.textContent = `${gamifyState.currentStreak} 🔥`;
+    overlayElements.stars.textContent = `${gamifyState.stars} ★`;
   }
 
   function startOverlayTimerUpdates() {
@@ -416,6 +469,7 @@
     setOverlayStatus(`Completed in ${formatTime(elapsedTime)}. Submitting...`, 'success');
     saveProgress();
     console.log('Wordle Timer: Stopped at', formatTime(elapsedTime));
+    updateGamifyOnComplete(true);
 
     // Submit to leaderboard if signed in
     submitToLeaderboard();
@@ -464,6 +518,7 @@
           time: elapsedTime,
           guesses: won ? guessCount : 7, // 7 indicates failed
           wordleDate: todayKey.replace('wordle-', ''),
+          completed: won,
           region
         }
       });
@@ -696,6 +751,7 @@
   function init() {
     console.log('Wordle Timer Extension: Initialized');
     initOverlay();
+    loadGamifyState();
 
     // Check if game already completed today
     const todayKey = getTodayKey();
@@ -753,5 +809,71 @@
     document.addEventListener('DOMContentLoaded', init);
   } else {
     init();
+  }
+
+  // Gamification helpers
+  async function loadGamifyState() {
+    try {
+      const { gamification } = await chrome.storage.local.get('gamification');
+      if (gamification) {
+        gamifyState = {
+          currentStreak: gamification.currentStreak || 0,
+          bestStreak: gamification.bestStreak || 0,
+          stars: gamification.stars || 0,
+          lastCompletedDate: gamification.lastCompletedDate || null
+        };
+      }
+    } catch (err) {
+      console.warn('Could not load gamification state', err);
+    } finally {
+      updateOverlayTime();
+    }
+  }
+
+  async function saveGamifyState() {
+    try {
+      await chrome.storage.local.set({ gamification: gamifyState });
+    } catch (err) {
+      console.warn('Could not save gamification state', err);
+    }
+  }
+
+  function updateGamifyOnComplete(won) {
+    const today = getTodayDateString();
+    const yesterday = getDateStringOffset(-1);
+
+    if (!won) {
+      gamifyState.currentStreak = 0;
+      gamifyState.lastCompletedDate = today;
+      updateOverlayTime();
+      saveGamifyState();
+      return;
+    }
+
+    // Prevent double-counting if already recorded today
+    if (gamifyState.lastCompletedDate === today) {
+      return;
+    }
+
+    if (gamifyState.lastCompletedDate === yesterday) {
+      gamifyState.currentStreak += 1;
+    } else {
+      gamifyState.currentStreak = 1;
+    }
+
+    gamifyState.bestStreak = Math.max(gamifyState.bestStreak, gamifyState.currentStreak);
+
+    // Award stars: base + speed bonus
+    let starsEarned = 1;
+    if (elapsedTime <= 120) starsEarned += 1;
+    if (elapsedTime <= 60) starsEarned += 1;
+    gamifyState.stars += starsEarned;
+
+    gamifyState.lastCompletedDate = today;
+    updateOverlayTime();
+    saveGamifyState();
+
+    setOverlayStatus(`Streak ${gamifyState.currentStreak}! Earned ${starsEarned}★`, 'success');
+    showCustomToast(`🔥 Streak ${gamifyState.currentStreak}! +${starsEarned}★`);
   }
 })();

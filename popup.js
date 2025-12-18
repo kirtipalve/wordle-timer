@@ -33,7 +33,11 @@ const elements = {
   avgTime: document.getElementById('avg-time'),
   bestTime: document.getElementById('best-time'),
   regionSelect: document.getElementById('region-select'),
-  regionLabel: document.getElementById('region-label')
+  regionLabel: document.getElementById('region-label'),
+  streakCurrent: document.getElementById('streak-current'),
+  streakBest: document.getElementById('streak-best'),
+  starsTotalBadge: document.getElementById('stars-total'),
+  rewardMessage: document.getElementById('reward-message')
 };
 
 async function init() {
@@ -79,6 +83,7 @@ async function checkAuthState() {
       showSection('leaderboard');
       await loadLeaderboard();
       await loadUserStats();
+      await loadGamificationPanel();
     } else {
       showSection('auth');
     }
@@ -100,6 +105,7 @@ async function handleSignIn() {
       showSection('leaderboard');
       await loadLeaderboard();
       await loadUserStats();
+      await loadGamificationPanel();
     } else {
       showError(result.error || 'Failed to sign in. Please try again.');
     }
@@ -330,6 +336,32 @@ async function saveRegionPreference(regionId) {
 function setRegionLabel(regionId) {
   const option = REGION_OPTIONS.find(opt => opt.id === regionId);
   elements.regionLabel.textContent = option ? option.label : '';
+}
+
+async function loadGamificationPanel() {
+  try {
+    const { gamification } = await chrome.storage.local.get('gamification');
+    const state = {
+      currentStreak: gamification?.currentStreak || 0,
+      bestStreak: gamification?.bestStreak || 0,
+      stars: gamification?.stars || 0,
+      lastCompletedDate: gamification?.lastCompletedDate || null
+    };
+
+    elements.streakCurrent.textContent = `${state.currentStreak} 🔥`;
+    elements.streakBest.textContent = `${state.bestStreak} 🏆`;
+    elements.starsTotalBadge.textContent = `${state.stars} ★`;
+
+    const today = getTodayDateString();
+    if (state.lastCompletedDate === today) {
+      elements.rewardMessage.textContent = 'You claimed today’s reward! Keep the streak alive tomorrow.';
+    } else {
+      elements.rewardMessage.textContent = 'Finish today’s Wordle to earn stars and extend your streak.';
+    }
+  } catch (err) {
+    console.error('Could not load gamification panel', err);
+    elements.rewardMessage.textContent = 'Finish today’s Wordle to earn stars and extend your streak.';
+  }
 }
 
 function formatTime(seconds) {
