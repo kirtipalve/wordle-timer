@@ -5,15 +5,15 @@ A Chrome extension that automatically tracks the time you take to solve the dail
 ![Chrome](https://img.shields.io/badge/Chrome-Extension-green?logo=googlechrome)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
 
-## ✨ Features
+## Features
 
-- ⏰ **Automatic Timing** - Starts automatically when you begin playing
-- ⏸️ **Smart Pausing** - Pauses when you switch tabs (no cheating!)
-- 💾 **Progress Saving** - Saves your progress throughout the day
-- 📤 **Enhanced Sharing** - Adds your solving time to share results
-- 🎯 **Clean Format** - Shows time in MM:SS format with timer emoji ⏱️
+- **Automatic Timing** - Starts automatically when you begin playing
+- **Smart Pausing** - Pauses when you switch tabs (no cheating!)
+- **Progress Saving** - Saves your progress throughout the day
+- **Enhanced Sharing** - Adds your solving time to share results
+- **Clean Format** - Shows time in MM:SS format with timer emoji ⏱️
 
-## 📦 Installation
+## Installation
 
 ### Method 1: Clone from GitHub
 
