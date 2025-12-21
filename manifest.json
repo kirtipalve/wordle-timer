@@ -1,20 +1,46 @@
 {
   "manifest_version": 3,
   "name": "Wordle Timer",
-  "version": "1.0.0",
-  "description": "Tracks time taken to solve Wordle and adds it to share results",
+  "version": "2.0.0",
+  "description": "Tracks time taken to solve Wordle with daily leaderboard support",
   "permissions": [
     "storage",
-    "activeTab"
+    "activeTab",
+    "identity"
   ],
   "host_permissions": [
     "https://www.nytimes.com/games/wordle/*"
   ],
+  "oauth2": {
+    "client_id": "679758000326-a967ap2u8dt4anrlb7bt9lk42omqjiq8.apps.googleusercontent.com",
+    "scopes": [
+      "openid",
+      "email",
+      "profile"
+    ]
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
   "content_scripts": [
     {
       "matches": ["https://www.nytimes.com/games/wordle/*"],
       "js": ["content.js"],
       "run_at": "document_end"
     }
-  ]
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
 }
