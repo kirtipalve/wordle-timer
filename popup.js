@@ -1,12 +1,5 @@
 // Wordle Timer Popup Script
 // Handles leaderboard display and authentication UI
-const REGION_OPTIONS = [
-  { id: 'americas', label: 'Americas (UTC-8 to UTC-3)' },
-  { id: 'europe', label: 'Europe/Africa (UTC-2 to UTC+3)' },
-  { id: 'asia-pacific', label: 'Asia-Pacific (UTC+4 to UTC+12)' },
-  { id: 'other', label: 'Other' }
-];
-let currentRegion = null;
 
 document.addEventListener('DOMContentLoaded', init);
 
@@ -32,17 +25,16 @@ const elements = {
   totalGames: document.getElementById('total-games'),
   avgTime: document.getElementById('avg-time'),
   bestTime: document.getElementById('best-time'),
-  regionSelect: document.getElementById('region-select'),
-  regionLabel: document.getElementById('region-label'),
   streakCurrent: document.getElementById('streak-current'),
   streakBest: document.getElementById('streak-best'),
   starsTotalBadge: document.getElementById('stars-total'),
-  rewardMessage: document.getElementById('reward-message')
+  rewardMessage: document.getElementById('reward-message'),
+  achievementsList: document.getElementById('achievements-list'),
+  achievementsProgress: document.getElementById('achievements-progress')
 };
 
 async function init() {
   setupEventListeners();
-  await initRegionSelector();
   await checkAuthState();
 }
 
@@ -54,21 +46,6 @@ function setupEventListeners() {
   // Tab switching
   document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', () => switchTab(tab.dataset.tab));
-  });
-}
-
-async function initRegionSelector() {
-  // Populate select options
-  elements.regionSelect.innerHTML = REGION_OPTIONS.map(opt => `<option value="${opt.id}">${opt.label}</option>`).join('');
-  currentRegion = await loadRegionPreference();
-  elements.regionSelect.value = currentRegion;
-  setRegionLabel(currentRegion);
-
-  elements.regionSelect.addEventListener('change', async (e) => {
-    currentRegion = e.target.value;
-    await saveRegionPreference(currentRegion);
-    setRegionLabel(currentRegion);
-    await loadLeaderboard();
   });
 }
 
@@ -84,6 +61,7 @@ async function checkAuthState() {
       await loadLeaderboard();
       await loadUserStats();
       await loadGamificationPanel();
+      await loadAchievements();
     } else {
       showSection('auth');
     }
@@ -106,6 +84,7 @@ async function handleSignIn() {
       await loadLeaderboard();
       await loadUserStats();
       await loadGamificationPanel();
+      await loadAchievements();
     } else {
       showError(result.error || 'Failed to sign in. Please try again.');
     }
@@ -138,16 +117,13 @@ async function handleSignOut() {
 
 async function loadLeaderboard() {
   const wordleNum = await resolveWordleNumber();
-  currentRegion = currentRegion || await loadRegionPreference();
   elements.wordleNumber.textContent = `Wordle #${wordleNum}`;
   elements.leaderboardList.innerHTML = '<div class="loading-inline">Loading leaderboard...</div>';
-  setRegionLabel(currentRegion);
 
   try {
     const result = await chrome.runtime.sendMessage({
       action: 'getLeaderboard',
-      wordleNumber: wordleNum,
-      region: currentRegion
+      wordleNumber: wordleNum
     });
 
     if (result.success) {
@@ -194,12 +170,12 @@ function renderLeaderboard(entries) {
   }
 
   elements.leaderboardList.innerHTML = entries.map((entry, index) => `
-    <div class="leaderboard-entry ${entry.isCurrentUser ? 'current-user' : ''}">
+    <div class="leaderboard-entry ${entry.isCurrentUser ? 'current-user' : ''} ${!entry.completed ? 'failed' : ''}">
       <span class="rank ${index < 3 ? 'top-3' : ''}">${index + 1}</span>
       <img class="avatar" src="${entry.photoURL || getDefaultAvatar(entry.displayName)}" alt="" onerror="this.src='${getDefaultAvatar(entry.displayName)}'">
       <span class="name">${escapeHtml(entry.displayName)}</span>
       <span class="time">${formatTime(entry.time)}</span>
-      <span class="guesses">${entry.guesses <= 6 ? entry.guesses : 'X'}/6</span>
+      <span class="guesses ${!entry.completed ? 'failed-badge' : ''}">${entry.completed ? entry.guesses : 'X'}/6</span>
     </div>
   `).join('');
 }
@@ -303,41 +279,6 @@ function getWordleNumber() {
   return Math.floor((today - startDate) / (1000 * 60 * 60 * 24));
 }
 
-function detectRegionByOffset() {
-  const offsetHours = -new Date().getTimezoneOffset() / 60;
-  if (offsetHours >= -8 && offsetHours <= -3) return 'americas'; // UTC-8 to UTC-3
-  if (offsetHours > -3 && offsetHours <= 3) return 'europe'; // UTC-2 to UTC+3
-  if (offsetHours > 3 && offsetHours <= 12) return 'asia-pacific'; // UTC+4 to UTC+12
-  return 'other';
-}
-
-async function loadRegionPreference() {
-  try {
-    const { leaderboardRegion } = await chrome.storage.local.get('leaderboardRegion');
-    if (leaderboardRegion && REGION_OPTIONS.some(opt => opt.id === leaderboardRegion)) {
-      return leaderboardRegion;
-    }
-  } catch (err) {
-    console.error('Could not load region preference', err);
-  }
-  const detected = detectRegionByOffset();
-  await saveRegionPreference(detected);
-  return detected;
-}
-
-async function saveRegionPreference(regionId) {
-  try {
-    await chrome.storage.local.set({ leaderboardRegion: regionId });
-  } catch (err) {
-    console.error('Could not save region preference', err);
-  }
-}
-
-function setRegionLabel(regionId) {
-  const option = REGION_OPTIONS.find(opt => opt.id === regionId);
-  elements.regionLabel.textContent = option ? option.label : '';
-}
-
 async function loadGamificationPanel() {
   try {
     const { gamification } = await chrome.storage.local.get('gamification');
@@ -354,13 +295,50 @@ async function loadGamificationPanel() {
 
     const today = getTodayDateString();
     if (state.lastCompletedDate === today) {
-      elements.rewardMessage.textContent = 'You claimed today’s reward! Keep the streak alive tomorrow.';
+      elements.rewardMessage.textContent = 'You claimed today\'s reward! Keep the streak alive tomorrow.';
     } else {
-      elements.rewardMessage.textContent = 'Finish today’s Wordle to earn stars and extend your streak.';
+      elements.rewardMessage.textContent = 'Finish today\'s Wordle to earn stars and extend your streak.';
     }
   } catch (err) {
     console.error('Could not load gamification panel', err);
-    elements.rewardMessage.textContent = 'Finish today’s Wordle to earn stars and extend your streak.';
+    elements.rewardMessage.textContent = 'Finish today\'s Wordle to earn stars and extend your streak.';
+  }
+}
+
+async function loadAchievements() {
+  try {
+    const result = await chrome.runtime.sendMessage({ action: 'getAchievements' });
+
+    if (result.success && result.achievements) {
+      const unlocked = result.achievements.filter(a => a.unlocked).length;
+      const total = result.achievements.length;
+
+      elements.achievementsProgress.textContent = `${unlocked} / ${total} unlocked`;
+
+      elements.achievementsList.innerHTML = result.achievements.map(achievement => `
+        <div class="achievement-item ${achievement.unlocked ? 'unlocked' : 'locked'}">
+          <div class="achievement-icon">${achievement.icon}</div>
+          <div class="achievement-info">
+            <div class="achievement-name">${escapeHtml(achievement.name)}</div>
+            <div class="achievement-description">${escapeHtml(achievement.description)}</div>
+          </div>
+          ${achievement.unlocked ? '<div class="achievement-badge">✓</div>' : ''}
+        </div>
+      `).join('');
+    } else {
+      elements.achievementsList.innerHTML = `
+        <div class="empty-state">
+          <p>Could not load achievements.</p>
+        </div>
+      `;
+    }
+  } catch (err) {
+    console.error('Could not load achievements', err);
+    elements.achievementsList.innerHTML = `
+      <div class="empty-state">
+        <p>Failed to load achievements.</p>
+      </div>
+    `;
   }
 }
 

@@ -8,7 +8,6 @@ const FIREBASE_CONFIG = {
 };
 
 const FIRESTORE_BASE = `https://firestore.googleapis.com/v1/projects/${FIREBASE_CONFIG.projectId}/databases/(default)/documents`;
-const REGION_IDS = ['americas', 'europe', 'asia-pacific', 'other'];
 
 // Message handler for popup and content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -31,16 +30,16 @@ async function handleMessage(message, sender) {
       return await submitTimeToLeaderboard(message.data);
 
     case 'getLeaderboard':
-      return await fetchLeaderboard({ wordleNumber: message.wordleNumber, region: message.region });
+      return await fetchLeaderboard(message.wordleNumber);
 
     case 'getUserStats':
       return await getUserStats();
 
+    case 'getAchievements':
+      return await getAchievements();
+
     case 'openPopupWindow':
       return await openPopupWindow();
-
-    case 'getDefaultRegion':
-      return { region: detectRegionByOffset() };
 
     default:
       return { success: false, error: 'Unknown action' };
@@ -288,8 +287,7 @@ async function submitTimeToLeaderboard(data) {
     return { success: false, error: 'not_authenticated' };
   }
 
-  const region = sanitizeRegion(data.region);
-  const leaderboardId = `${data.wordleNumber}_${region}`;
+  const leaderboardId = String(data.wordleNumber);
   const completed = data.completed !== undefined ? !!data.completed : (data.guesses <= 6);
 
   // Check if already submitted today
@@ -308,7 +306,6 @@ async function submitTimeToLeaderboard(data) {
         guesses: { integerValue: String(data.guesses) },
         wordleDate: { stringValue: data.wordleDate },
         completed: { booleanValue: completed },
-        region: { stringValue: region },
         submittedAt: { timestampValue: new Date().toISOString() }
       }
     };
@@ -385,31 +382,20 @@ async function checkExistingSubmission(wordleNumber, userId, idToken) {
   }
 }
 
-async function fetchLeaderboard(request) {
+async function fetchLeaderboard(wordleNumber) {
   const user = await getValidToken();
 
   if (!user) {
     return { success: false, error: 'not_authenticated', entries: [] };
   }
 
-  const { wordleNumber, region: regionInput } = typeof request === 'object'
-    ? { wordleNumber: request.wordleNumber, region: request.region }
-    : { wordleNumber: request, region: undefined };
-
-  const region = sanitizeRegion(regionInput);
-  const leaderboardId = `${wordleNumber}_${region}`;
+  const leaderboardId = String(wordleNumber);
 
   try {
-    // Fetch both region and legacy leaderboards and merge
-    const [regionEntries, legacyEntries] = await Promise.all([
-      fetchLeaderboardEntries(leaderboardId, user.idToken, user.uid),
-      fetchLeaderboardEntries(String(wordleNumber), user.idToken, user.uid)
-    ]);
+    const allEntries = await fetchLeaderboardEntries(leaderboardId, user.idToken, user.uid);
 
-    const merged = mergeEntries(regionEntries, legacyEntries);
-
-    // Assign ranks after merge/sort
-    const entries = merged.map((entry, idx) => ({
+    // Assign ranks after sorting by time
+    const entries = allEntries.map((entry, idx) => ({
       ...entry,
       rank: idx + 1
     }));
@@ -474,21 +460,9 @@ async function fetchLeaderboardEntries(leaderboardId, idToken, userId) {
       photoURL: r.document.fields.photoURL?.stringValue || '',
       time: parseInt(r.document.fields.time?.integerValue || 0),
       guesses: parseInt(r.document.fields.guesses?.integerValue || 0),
+      completed: r.document.fields.completed?.booleanValue !== undefined ? r.document.fields.completed.booleanValue : (parseInt(r.document.fields.guesses?.integerValue || 0) <= 6),
       isCurrentUser: r.document.fields.userId?.stringValue === userId
     }));
-}
-
-function mergeEntries(primary, secondary) {
-  const map = new Map();
-
-  [...(primary || []), ...(secondary || [])].forEach(entry => {
-    if (!entry) return;
-    if (!map.has(entry.docId)) {
-      map.set(entry.docId, entry);
-    }
-  });
-
-  return Array.from(map.values()).sort((a, b) => a.time - b.time);
 }
 
 async function updateUserStats(user, data) {
@@ -667,15 +641,34 @@ async function persistComputedStats(user, stats) {
   }
 }
 
-function sanitizeRegion(region) {
-  if (REGION_IDS.includes(region)) return region;
-  return detectRegionByOffset();
-}
+async function getAchievements() {
+  try {
+    const { gamification } = await chrome.storage.local.get('gamification');
 
-function detectRegionByOffset() {
-  const offsetHours = -new Date().getTimezoneOffset() / 60;
-  if (offsetHours >= -8 && offsetHours <= -3) return 'americas'; // roughly UTC-8 to UTC-3
-  if (offsetHours > -3 && offsetHours <= 3) return 'europe'; // roughly UTC-2 to UTC+3
-  if (offsetHours > 3 && offsetHours <= 12) return 'asia-pacific'; // UTC+4 to UTC+12
-  return 'other';
+    const ACHIEVEMENTS = [
+      { id: 'first_win', name: 'First Victory', description: 'Complete your first Wordle', icon: '🎉' },
+      { id: 'speed_demon', name: 'Speed Demon', description: 'Win in under 60 seconds', icon: '⚡' },
+      { id: 'streak_5', name: 'On Fire', description: 'Achieve a 5-day win streak', icon: '🔥' },
+      { id: 'streak_10', name: 'Unstoppable', description: 'Achieve a 10-day win streak', icon: '💪' },
+      { id: 'streak_30', name: 'Legend', description: 'Achieve a 30-day win streak', icon: '👑' },
+      { id: 'stars_50', name: 'Star Collector', description: 'Earn 50 stars', icon: '⭐' },
+      { id: 'stars_100', name: 'Star Master', description: 'Earn 100 stars', icon: '🌟' },
+      { id: 'games_10', name: 'Dedicated', description: 'Complete 10 Wordles', icon: '📚' },
+      { id: 'games_50', name: 'Veteran', description: 'Complete 50 Wordles', icon: '🎖️' },
+      { id: 'games_100', name: 'Century Club', description: 'Complete 100 Wordles', icon: '💯' }
+    ];
+
+    const unlocked = gamification?.achievements || [];
+
+    return {
+      success: true,
+      achievements: ACHIEVEMENTS.map(achievement => ({
+        ...achievement,
+        unlocked: unlocked.includes(achievement.id)
+      }))
+    };
+  } catch (err) {
+    console.error('Get achievements error:', err);
+    return { success: false, error: err.message, achievements: [] };
+  }
 }

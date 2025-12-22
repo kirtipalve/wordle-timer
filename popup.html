@@ -44,6 +44,7 @@
         <div class="tabs">
           <button class="tab active" data-tab="today">Today</button>
           <button class="tab" data-tab="my-stats">My Stats</button>
+          <button class="tab" data-tab="achievements">Achievements</button>
         </div>
 
         <!-- Today's Leaderboard Tab -->
@@ -51,14 +52,6 @@
           <div class="wordle-info">
             <span id="wordle-number">Wordle #---</span>
             <span id="your-time" class="hidden">Your time: --:--</span>
-          </div>
-
-          <div class="region-picker">
-            <label for="region-select">Leaderboard region</label>
-            <div class="region-control">
-              <select id="region-select"></select>
-              <span id="region-label" class="region-label"></span>
-            </div>
           </div>
 
           <div id="leaderboard-list">
@@ -75,7 +68,7 @@
         </div>
 
         <!-- My Stats Tab -->
-        <div id="my-stats-tab" class="tab-content hidden">
+        <div id="my-stats-tab" class="tab-content">
           <div class="stats-grid">
             <div class="stat-card">
               <span class="stat-value" id="total-games">0</span>
@@ -114,6 +107,17 @@
             <div class="gamify-reward" id="reward-message">
               Finish today’s Wordle to earn your next star.
             </div>
+          </div>
+        </div>
+
+        <!-- Achievements Tab -->
+        <div id="achievements-tab" class="tab-content">
+          <div class="achievements-header">
+            <div class="achievements-title">Achievements</div>
+            <div class="achievements-subtitle" id="achievements-progress">0 / 10 unlocked</div>
+          </div>
+          <div id="achievements-list" class="achievements-list">
+            <div class="loading-inline">Loading achievements...</div>
           </div>
         </div>
 
