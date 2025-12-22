@@ -2,6 +2,8 @@
 (function() {
   'use strict';
 
+  console.log('Wordle Timer: Content script loaded');
+
   let startTime = null;
   let elapsedTime = 0;
   let timerInterval = null;
@@ -10,13 +12,26 @@
   let overlayElements = null;
   let overlayTimerInterval = null;
   let overlayAuthState = { isSignedIn: false, loading: false };
-  const REGION_IDS = ['americas', 'europe', 'asia-pacific', 'other'];
   let gamifyState = {
     currentStreak: 0,
     bestStreak: 0,
     stars: 0,
-    lastCompletedDate: null
+    lastCompletedDate: null,
+    achievements: []
   };
+
+  const ACHIEVEMENTS = [
+    { id: 'first_win', name: 'First Victory', description: 'Complete your first Wordle', icon: '🎉', check: (state) => state.totalGames >= 1 },
+    { id: 'speed_demon', name: 'Speed Demon', description: 'Win in under 60 seconds', icon: '⚡', check: (state) => state.fastestWin && state.fastestWin <= 60 },
+    { id: 'streak_5', name: 'On Fire', description: 'Achieve a 5-day win streak', icon: '🔥', check: (state) => state.bestStreak >= 5 },
+    { id: 'streak_10', name: 'Unstoppable', description: 'Achieve a 10-day win streak', icon: '💪', check: (state) => state.bestStreak >= 10 },
+    { id: 'streak_30', name: 'Legend', description: 'Achieve a 30-day win streak', icon: '👑', check: (state) => state.bestStreak >= 30 },
+    { id: 'stars_50', name: 'Star Collector', description: 'Earn 50 stars', icon: '⭐', check: (state) => state.stars >= 50 },
+    { id: 'stars_100', name: 'Star Master', description: 'Earn 100 stars', icon: '🌟', check: (state) => state.stars >= 100 },
+    { id: 'games_10', name: 'Dedicated', description: 'Complete 10 Wordles', icon: '📚', check: (state) => state.totalGames >= 10 },
+    { id: 'games_50', name: 'Veteran', description: 'Complete 50 Wordles', icon: '🎖️', check: (state) => state.totalGames >= 50 },
+    { id: 'games_100', name: 'Century Club', description: 'Complete 100 Wordles', icon: '💯', check: (state) => state.totalGames >= 100 }
+  ];
 
   // Get today's date in YYYY-MM-DD format for storage key
   function getTodayKey() {
@@ -33,28 +48,6 @@
     const d = new Date();
     d.setDate(d.getDate() + offsetDays);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  }
-
-  function detectRegionByOffset() {
-    const offsetHours = -new Date().getTimezoneOffset() / 60;
-    if (offsetHours >= -8 && offsetHours <= -3) return 'americas'; // UTC-8 to UTC-3
-    if (offsetHours > -3 && offsetHours <= 3) return 'europe'; // UTC-2 to UTC+3
-    if (offsetHours > 3 && offsetHours <= 12) return 'asia-pacific'; // UTC+4 to UTC+12
-    return 'other';
-  }
-
-  async function getLeaderboardRegion() {
-    try {
-      const { leaderboardRegion } = await chrome.storage.local.get('leaderboardRegion');
-      if (leaderboardRegion && REGION_IDS.includes(leaderboardRegion)) {
-        return leaderboardRegion;
-      }
-    } catch (err) {
-      console.warn('Could not read stored region', err);
-    }
-    const detected = detectRegionByOffset();
-    chrome.storage.local.set({ leaderboardRegion: detected });
-    return detected;
   }
 
   // Format time as MM:SS
@@ -459,24 +452,25 @@
   }
 
   // Stop the timer when game is complete
-  function stopTimer() {
+  function stopTimer(won = true) {
     if (timerInterval) {
       clearInterval(timerInterval);
       timerInterval = null;
     }
     gameCompleted = true;
     stopOverlayTimerUpdates();
-    setOverlayStatus(`Completed in ${formatTime(elapsedTime)}. Submitting...`, 'success');
+    const result = won ? 'Won' : 'Lost';
+    setOverlayStatus(`${result} in ${formatTime(elapsedTime)}. Submitting...`, won ? 'success' : 'warn');
     saveProgress();
-    console.log('Wordle Timer: Stopped at', formatTime(elapsedTime));
-    updateGamifyOnComplete(true);
+    console.log(`Wordle Timer: ${result} at`, formatTime(elapsedTime));
+    updateGamifyOnComplete(won);
 
     // Submit to leaderboard if signed in
-    submitToLeaderboard();
+    submitToLeaderboard(won);
   }
 
   // Submit time to leaderboard
-  async function submitToLeaderboard() {
+  async function submitToLeaderboard(won) {
     try {
       // Check if user is signed in
       const authState = await chrome.runtime.sendMessage({ action: 'getAuthState' });
@@ -493,20 +487,13 @@
 
       rows.forEach(row => {
         const tiles = row.querySelectorAll('[data-testid="tile"]');
-        const hasContent = Array.from(tiles).some(tile => {
-          const state = tile.getAttribute('data-state');
-          return state && state !== 'empty' && state !== 'tbd';
-        });
-        if (hasContent) guessCount++;
+        const rowStates = Array.from(tiles).map(tile => tile.getAttribute('data-state'));
+        // Count rows with revealed tiles
+        if (rowStates.some(state => state === 'correct' || state === 'present' || state === 'absent')) {
+          guessCount++;
+        }
       });
 
-      // Check if won (last row is all correct)
-      const lastRowTiles = rows[guessCount - 1]?.querySelectorAll('[data-testid="tile"]');
-      let won = lastRowTiles && Array.from(lastRowTiles).every(
-        tile => tile.getAttribute('data-state') === 'correct'
-      );
-
-      const region = await getLeaderboardRegion();
       const wordleNumber = parseInt(getWordleNumber());
       storeWordleNumber(wordleNumber);
       const todayKey = getTodayKey();
@@ -518,8 +505,7 @@
           time: elapsedTime,
           guesses: won ? guessCount : 7, // 7 indicates failed
           wordleDate: todayKey.replace('wordle-', ''),
-          completed: won,
-          region
+          completed: won
         }
       });
 
@@ -556,44 +542,73 @@
     }
   }
 
-  // Detect game board to start timer
-  function detectGameStart() {
-    const gameBoard = document.querySelector('[class*="Board-module_board"]');
-    if (gameBoard && !gameCompleted) {
-      // Check if there are any filled tiles (game in progress or completed)
-      const filledTiles = document.querySelectorAll('[data-state="correct"], [data-state="present"], [data-state="absent"]');
-      const allCorrect = document.querySelectorAll('[data-state="correct"]').length;
-
-      // If we have 5 correct tiles, game might be complete
-      if (allCorrect >= 5) {
-        // Don't start timer, game is likely complete
+  // Check game state and manage timer
+  function checkGameState() {
+    try {
+      const gameBoard = document.querySelector('[class*="Board-module_board"]');
+      if (!gameBoard) {
+        setOverlayStatus('Waiting for the board...', 'info');
         return;
       }
 
-      setOverlayStatus('Board detected. Timer will start when you play.', 'info');
-      startTimer();
-    }
-  }
+      const rows = document.querySelectorAll('[class*="Row-module_row"]');
+      if (!rows || rows.length === 0) return;
 
-  // Detect game completion by looking for the stats modal specifically
-  function detectGameEnd() {
-    // Look for the stats button being clicked or stats modal showing
-    // The stats modal contains statistics divs or distribution graph
-    const modal = document.querySelector('[class*="Modal"]');
+      let hasWinningRow = false;
+      let revealedRowCount = 0;
+      let lastRevealedRow = null;
 
-    if (modal && !gameCompleted) {
-      // Check if this is the stats modal (not the help modal)
-      // Stats modal contains "Statistics" heading or stats-related content
-      const statsHeading = modal.querySelector('h2');
-      const hasStatsContent = modal.textContent.includes('Statistics') ||
-                              modal.textContent.includes('GUESS DISTRIBUTION') ||
-                              modal.querySelector('[id*="stats"]') ||
-                              modal.querySelector('[class*="Stats"]');
+      // Analyze all rows
+      rows.forEach(row => {
+        const tiles = row.querySelectorAll('[data-testid="tile"]');
+        if (tiles.length !== 5) return;
 
-      if (statsHeading && hasStatsContent) {
-        // This is the stats/results modal, game is complete
-        stopTimer();
+        const rowStates = Array.from(tiles).map(tile => tile.getAttribute('data-state'));
+
+        // Count revealed rows (guesses that have been submitted)
+        const isRevealed = rowStates.some(state => state === 'correct' || state === 'present' || state === 'absent');
+        if (isRevealed) {
+          revealedRowCount++;
+          lastRevealedRow = rowStates;
+        }
+
+        // Check for winning row (all 5 tiles are correct)
+        if (rowStates.every(state => state === 'correct')) {
+          hasWinningRow = true;
+        }
+      });
+
+      // Check if game was already completed before we loaded
+      if ((hasWinningRow || revealedRowCount === 6) && startTime === null) {
+        gameCompleted = true;
+        setOverlayStatus('Game already completed today.', 'warn');
+        return;
       }
+
+      // Start timer on first revealed row (first guess submitted)
+      if (revealedRowCount === 1 && startTime === null && !gameCompleted) {
+        console.log('Wordle Timer: First guess detected, starting timer');
+        setOverlayStatus('Timer started!', 'info');
+        startTimer();
+      }
+
+      // Check if game just completed
+      if (!gameCompleted && startTime !== null) {
+        if (hasWinningRow) {
+          console.log('Wordle Timer: Win detected');
+          stopTimer(true);
+        } else if (revealedRowCount === 6) {
+          console.log('Wordle Timer: Loss detected (6 guesses)');
+          stopTimer(false);
+        }
+      }
+
+      // Update status for waiting state
+      if (revealedRowCount === 0 && startTime === null && !gameCompleted) {
+        setOverlayStatus('Timer starts when you submit your first guess.', 'info');
+      }
+    } catch (error) {
+      console.error('Wordle Timer: Error checking game state:', error);
     }
   }
 
@@ -749,66 +764,105 @@
 
   // Initialize
   function init() {
-    console.log('Wordle Timer Extension: Initialized');
-    initOverlay();
-    loadGamifyState();
+    console.log('Wordle Timer: Initializing...');
 
-    // Check if game already completed today
-    const todayKey = getTodayKey();
-    chrome.storage.local.get([todayKey], function(result) {
-      if (result[todayKey] && result[todayKey].completed) {
-        gameCompleted = true;
-        elapsedTime = result[todayKey].time;
-        updateOverlayTime();
-        setOverlayStatus(`Completed earlier at ${formatTime(elapsedTime)}.`, 'warn');
+    try {
+      // Initialize overlay first
+      const overlay = initOverlay();
+      if (!overlay) {
+        console.error('Wordle Timer: Failed to create overlay');
         return;
       }
+      console.log('Wordle Timer: Overlay created');
 
-      if (result[todayKey] && result[todayKey].time) {
-        elapsedTime = result[todayKey].time;
-        updateOverlayTime();
-        setOverlayStatus('Resuming saved timer once the board is ready.', 'info');
-      }
-    });
+      // Load gamification state
+      loadGamifyState();
 
-    // Wait for game to load
-    const checkInterval = setInterval(() => {
-      const gameBoard = document.querySelector('[class*="Board-module_board"]');
-      if (gameBoard) {
-        clearInterval(checkInterval);
-        detectGameStart();
+      // Check if game already completed today
+      const todayKey = getTodayKey();
+      chrome.storage.local.get([todayKey], function(result) {
+        if (chrome.runtime.lastError) {
+          console.error('Wordle Timer: Storage error:', chrome.runtime.lastError);
+          setOverlayStatus('Ready to start.', 'info');
+          return;
+        }
 
-        // Monitor for game end and share button
-        const observer = new MutationObserver(() => {
-          detectGameEnd();
+        if (result[todayKey] && result[todayKey].completed) {
+          gameCompleted = true;
+          elapsedTime = result[todayKey].time;
+          updateOverlayTime();
+          setOverlayStatus(`Completed earlier at ${formatTime(elapsedTime)}.`, 'warn');
+          return;
+        }
+
+        if (result[todayKey] && result[todayKey].time) {
+          elapsedTime = result[todayKey].time;
+          updateOverlayTime();
+          setOverlayStatus('Resuming saved timer.', 'info');
+        }
+      });
+
+      // Wait for game board to appear
+      let checkCount = 0;
+      const checkInterval = setInterval(() => {
+        checkCount++;
+        const gameBoard = document.querySelector('[class*="Board-module_board"]');
+
+        if (gameBoard) {
+          clearInterval(checkInterval);
+          console.log('Wordle Timer: Game board found, starting monitoring');
+
+          // Initial check
+          checkGameState();
           interceptShare();
-        });
 
-        observer.observe(document.body, {
-          childList: true,
-          subtree: true,
-          attributes: true,
-          attributeFilter: ['class', 'data-state']
-        });
+          // Monitor for changes (game progress) - throttled to avoid performance issues
+          let checkTimeout = null;
+          const observer = new MutationObserver(() => {
+            if (checkTimeout) return;
+            checkTimeout = setTimeout(() => {
+              try {
+                checkGameState();
+                interceptShare();
+              } catch (error) {
+                console.error('Wordle Timer: Error in observer:', error);
+              } finally {
+                checkTimeout = null;
+              }
+            }, 100); // Check at most every 100ms
+          });
 
-        // Initial check
-        detectGameEnd();
-        interceptShare();
-      }
-    }, 500);
+          observer.observe(gameBoard, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['data-state']
+          });
 
-    // Stop checking after 10 seconds
-    setTimeout(() => clearInterval(checkInterval), 10000);
+          console.log('Wordle Timer: Monitoring started successfully');
+        } else if (checkCount >= 30) {
+          // Stop checking after 15 seconds (30 * 500ms)
+          clearInterval(checkInterval);
+          console.warn('Wordle Timer: Game board not found after 15 seconds');
+          setOverlayStatus('Could not find game board. Refresh the page.', 'warn');
+        }
+      }, 500);
 
-    // Handle visibility change for pause/resume
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+      // Handle visibility change for pause/resume
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+
+      console.log('Wordle Timer: Initialization complete');
+    } catch (error) {
+      console.error('Wordle Timer: Initialization failed:', error);
+    }
   }
 
-  // Start when DOM is ready
+  // Start when page is ready - handle all loading states
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
-    init();
+    // DOM is already loaded, initialize now
+    setTimeout(init, 100); // Small delay to let Wordle initialize first
   }
 
   // Gamification helpers
@@ -820,7 +874,10 @@
           currentStreak: gamification.currentStreak || 0,
           bestStreak: gamification.bestStreak || 0,
           stars: gamification.stars || 0,
-          lastCompletedDate: gamification.lastCompletedDate || null
+          lastCompletedDate: gamification.lastCompletedDate || null,
+          achievements: gamification.achievements || [],
+          totalGames: gamification.totalGames || 0,
+          fastestWin: gamification.fastestWin || null
         };
       }
     } catch (err) {
@@ -842,17 +899,26 @@
     const today = getTodayDateString();
     const yesterday = getDateStringOffset(-1);
 
+    // Prevent double-counting if already recorded today
+    if (gamifyState.lastCompletedDate === today) {
+      return;
+    }
+
+    // Update total games
+    gamifyState.totalGames = (gamifyState.totalGames || 0) + 1;
+
     if (!won) {
       gamifyState.currentStreak = 0;
       gamifyState.lastCompletedDate = today;
       updateOverlayTime();
+      checkAndAwardAchievements();
       saveGamifyState();
       return;
     }
 
-    // Prevent double-counting if already recorded today
-    if (gamifyState.lastCompletedDate === today) {
-      return;
+    // Update fastest win time
+    if (!gamifyState.fastestWin || elapsedTime < gamifyState.fastestWin) {
+      gamifyState.fastestWin = elapsedTime;
     }
 
     if (gamifyState.lastCompletedDate === yesterday) {
@@ -871,9 +937,32 @@
 
     gamifyState.lastCompletedDate = today;
     updateOverlayTime();
+
+    // Check for new achievements
+    checkAndAwardAchievements();
+
     saveGamifyState();
 
     setOverlayStatus(`Streak ${gamifyState.currentStreak}! Earned ${starsEarned}★`, 'success');
     showCustomToast(`🔥 Streak ${gamifyState.currentStreak}! +${starsEarned}★`);
+  }
+
+  function checkAndAwardAchievements() {
+    if (!gamifyState.achievements) {
+      gamifyState.achievements = [];
+    }
+
+    ACHIEVEMENTS.forEach(achievement => {
+      // Check if already unlocked
+      if (gamifyState.achievements.includes(achievement.id)) {
+        return;
+      }
+
+      // Check if criteria met
+      if (achievement.check(gamifyState)) {
+        gamifyState.achievements.push(achievement.id);
+        showCustomToast(`${achievement.icon} Achievement Unlocked: ${achievement.name}!`);
+      }
+    });
   }
 })();

@@ -148,15 +148,15 @@ h1 {
 
 .tab {
   flex: 1;
-  padding: 10px 8px;
+  padding: 10px 4px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.03em;
   transition: all 0.2s;
   border-radius: 4px;
 }
@@ -172,11 +172,11 @@ h1 {
 }
 
 .tab-content {
-  display: none;
+  display: none !important;
 }
 
 .tab-content.active {
-  display: block;
+  display: block !important;
 }
 
 /* Wordle Info */
@@ -274,6 +274,10 @@ h1 {
   background: rgba(83, 141, 78, 0.15);
 }
 
+.leaderboard-entry.failed {
+  opacity: 0.7;
+}
+
 .leaderboard-entry .rank {
   width: 24px;
   font-weight: 700;
@@ -315,6 +319,11 @@ h1 {
   font-size: 11px;
   width: 28px;
   text-align: right;
+}
+
+.leaderboard-entry .guesses.failed-badge {
+  color: #e74c3c;
+  font-weight: 700;
 }
 
 /* User Rank */
@@ -504,6 +513,104 @@ h1 {
 .empty-state p {
   font-size: 13px;
   margin-bottom: 8px;
+}
+
+/* Achievements */
+.achievements-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.achievements-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.achievements-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.achievements-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.achievements-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.achievements-list::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+.achievements-list::-webkit-scrollbar-thumb {
+  background: var(--accent-gray);
+  border-radius: 3px;
+}
+
+.achievement-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.achievement-item.locked {
+  opacity: 0.5;
+}
+
+.achievement-item.unlocked {
+  border-color: var(--accent-green);
+  background: rgba(83, 141, 78, 0.1);
+}
+
+.achievement-icon {
+  font-size: 28px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.achievement-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.achievement-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.achievement-description {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+.achievement-badge {
+  font-size: 18px;
+  color: var(--accent-green);
+  font-weight: 700;
+  flex-shrink: 0;
 }
 
 /* Utility Classes */
